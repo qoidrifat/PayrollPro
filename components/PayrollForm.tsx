@@ -1,21 +1,29 @@
 import React, { useState, useEffect } from 'react';
-import { Employee, PayrollItem, PayrollStatus } from '../types';
+import { Employee, PayrollItem, PayrollStatus, Payroll } from '../types';
 
 interface PayrollFormProps {
   employee: Employee;
+  existingPayroll?: Payroll; // Optional: For Edit Mode
   onSave: (data: any) => void;
   onCancel: () => void;
 }
 
-export const PayrollForm: React.FC<PayrollFormProps> = ({ employee, onSave, onCancel }) => {
-  const [month, setMonth] = useState(new Date().toISOString().slice(0, 7)); // YYYY-MM
-  const [allowances, setAllowances] = useState<PayrollItem[]>([]);
-  const [deductions, setDeductions] = useState<PayrollItem[]>([]);
+export const PayrollForm: React.FC<PayrollFormProps> = ({ employee, existingPayroll, onSave, onCancel }) => {
+  // Initialize state based on existingPayroll (Edit Mode) or defaults (Create Mode)
+  const [month, setMonth] = useState(existingPayroll?.month || new Date().toISOString().slice(0, 7)); // YYYY-MM
+  const [allowances, setAllowances] = useState<PayrollItem[]>(existingPayroll?.allowances || []);
+  const [deductions, setDeductions] = useState<PayrollItem[]>(existingPayroll?.deductions || []);
   
-  // Overtime State
-  const [overtimeHours, setOvertimeHours] = useState(0);
-  // Standard formula in Indonesia often uses 1/173
-  const [overtimeRate, setOvertimeRate] = useState(Math.round(employee.baseSalary / 173)); 
+  // Overtime State Calculation
+  // If editing, reverse calculate hours from pay if not explicitly stored, or assume 0 if new.
+  // For simplicity in this mock, if existingPayroll exists, we estimate hours = overtimePay / rate
+  const initialRate = Math.round(employee.baseSalary / 173);
+  const initialOvertimeHours = existingPayroll?.overtimePay 
+    ? Math.round(existingPayroll.overtimePay / initialRate) 
+    : 0;
+
+  const [overtimeHours, setOvertimeHours] = useState(initialOvertimeHours);
+  const [overtimeRate, setOvertimeRate] = useState(initialRate); 
   
   // New item inputs
   const [newAllowName, setNewAllowName] = useState('');
@@ -37,21 +45,20 @@ export const PayrollForm: React.FC<PayrollFormProps> = ({ employee, onSave, onCa
       return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(num);
   }
 
-  // Auto-load fixed allowances on mount
+  // Auto-load fixed allowances on mount ONLY IF NOT EDITING
   useEffect(() => {
-      if (employee.fixedAllowances && employee.fixedAllowances.length > 0) {
+      if (!existingPayroll && employee.fixedAllowances && employee.fixedAllowances.length > 0) {
           const fixedItems = employee.fixedAllowances.map(fa => ({
               id: `fixed_${fa.id}`,
               name: fa.name,
               amount: fa.amount
           }));
           setAllowances(prev => {
-              // Prevent duplicates if already loaded (simple check)
               if(prev.length === 0) return fixedItems;
               return prev;
           });
       }
-  }, [employee]);
+  }, [employee, existingPayroll]);
 
   const addAllowance = () => {
     if (newAllowName && newAllowAmount) {
@@ -70,10 +77,9 @@ export const PayrollForm: React.FC<PayrollFormProps> = ({ employee, onSave, onCa
   };
 
   const autoCalculateDeductions = () => {
-      // Simulation of BPJS and Tax logic
-      const bpjsKesehatan = Math.round(baseSalary * 0.01); // Example: 1%
-      const bpjsKetenagakerjaan = Math.round(baseSalary * 0.02); // Example: 2%
-      const pph21 = Math.round(baseSalary * 0.05); // Example: 5%
+      const bpjsKesehatan = Math.round(baseSalary * 0.01); 
+      const bpjsKetenagakerjaan = Math.round(baseSalary * 0.02); 
+      const pph21 = Math.round(baseSalary * 0.05); 
 
       const newItems = [
           { id: 'bpjs_kes', name: 'BPJS Kesehatan (1%)', amount: bpjsKesehatan },
@@ -81,9 +87,7 @@ export const PayrollForm: React.FC<PayrollFormProps> = ({ employee, onSave, onCa
           { id: 'pph21', name: 'Pajak PPh 21 (5%)', amount: pph21 },
       ];
 
-      // Filter out if already exists to avoid duplicates
       const filteredNewItems = newItems.filter(newItem => !deductions.some(d => d.name === newItem.name));
-      
       setDeductions([...deductions, ...filteredNewItems]);
   };
 
@@ -93,6 +97,7 @@ export const PayrollForm: React.FC<PayrollFormProps> = ({ employee, onSave, onCa
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     onSave({
+      id: existingPayroll?.id, // Pass existing ID if editing
       employeeId: employee.id,
       month,
       baseSalary,
@@ -102,8 +107,8 @@ export const PayrollForm: React.FC<PayrollFormProps> = ({ employee, onSave, onCa
       totalDeduction,
       overtimePay,
       netSalary,
-      status: PayrollStatus.SUBMITTED,
-      issueDate: new Date().toISOString().split('T')[0]
+      status: existingPayroll?.status || PayrollStatus.SUBMITTED,
+      issueDate: existingPayroll?.issueDate || new Date().toISOString().split('T')[0]
     });
   };
 
@@ -111,8 +116,12 @@ export const PayrollForm: React.FC<PayrollFormProps> = ({ employee, onSave, onCa
     <div className="bg-white dark:bg-brand-dark p-6 md:p-8 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 max-w-5xl mx-auto transition-colors">
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-8 border-b border-gray-100 dark:border-gray-700 pb-4 gap-4">
           <div>
-            <h2 className="text-xl md:text-2xl font-bold text-gray-900 dark:text-white">Proses Penggajian</h2>
-            <p className="text-sm text-gray-500 dark:text-gray-400">Hitung gaji, tunjangan, dan lembur karyawan.</p>
+            <h2 className="text-xl md:text-2xl font-bold text-gray-900 dark:text-white">
+                {existingPayroll ? 'Edit Data Penggajian' : 'Buat Penggajian Baru'}
+            </h2>
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+                {existingPayroll ? `Revisi data gaji periode ${existingPayroll.month}` : 'Hitung gaji, tunjangan, dan lembur karyawan.'}
+            </p>
           </div>
           <div className="flex items-center bg-blue-50 dark:bg-blue-900/30 px-4 py-2 rounded-lg">
               <img src={employee.user.avatarUrl} className="w-8 h-8 rounded-full mr-3 border border-white dark:border-gray-600 shadow-sm" alt="" />
@@ -248,7 +257,9 @@ export const PayrollForm: React.FC<PayrollFormProps> = ({ employee, onSave, onCa
 
         <div className="flex justify-end space-x-4 pt-4">
             <button type="button" onClick={onCancel} className="px-6 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-bold text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">Batal</button>
-            <button type="submit" className="px-6 py-2.5 border border-transparent rounded-lg shadow-lg text-sm font-bold text-white bg-brand-blue hover:bg-blue-800 transition-colors transform hover:-translate-y-0.5">Simpan & Setujui</button>
+            <button type="submit" className="px-6 py-2.5 border border-transparent rounded-lg shadow-lg text-sm font-bold text-white bg-brand-blue hover:bg-blue-800 transition-colors transform hover:-translate-y-0.5">
+                {existingPayroll ? 'Simpan Perubahan' : 'Buat & Setujui'}
+            </button>
         </div>
       </form>
     </div>

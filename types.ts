@@ -72,6 +72,7 @@ export interface AttendanceRecord {
   checkIn?: string;
   checkOut?: string;
   overtimeHours?: number;
+  proofImageUrl?: string; // New: Image proof for attendance
 }
 
 export interface PayrollItem {

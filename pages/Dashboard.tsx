@@ -1,59 +1,213 @@
-import React, { useMemo } from 'react';
-import { Role, User, PayrollStatus } from '../types';
-import { PAYROLLS, EMPLOYEES } from '../services/mockData';
+import React, { useMemo, useState } from 'react';
+import { Role, User, PayrollStatus, Employee, Payroll } from '../types';
+import { EMPLOYEES } from '../services/mockData'; 
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
+import { PayrollForm } from '../components/PayrollForm';
+import { UsersIcon, CashIcon, DocumentIcon } from '../components/Icons';
 
 interface DashboardProps {
   user: User;
+  payrolls: Payroll[]; // Receive dynamic payrolls
+  onAddPayroll: (payroll: Payroll) => void;
+  onNavigate: (tab: string) => void;
+  onQuickAddEmployee?: () => void;
 }
 
-export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
-  
+export const Dashboard: React.FC<DashboardProps> = ({ user, payrolls, onAddPayroll, onNavigate, onQuickAddEmployee }) => {
+  // State for Payroll Creation Workflow
+  const [showEmployeeSelectModal, setShowEmployeeSelectModal] = useState(false);
+  const [selectedEmployeeForPayroll, setSelectedEmployeeForPayroll] = useState<Employee | null>(null);
+  const [showSuccessToast, setShowSuccessToast] = useState(false);
+
+  const isAdminOrManager = user.role === Role.ADMIN || user.role === Role.MANAGER;
+
+  // Dynamic Stats Calculation
   const stats = useMemo(() => {
-    if (user.role === Role.ADMIN || user.role === Role.MANAGER) {
+    if (isAdminOrManager) {
         const totalEmployees = EMPLOYEES.length;
-        const totalPayroll = PAYROLLS.reduce((acc, p) => acc + p.netSalary, 0);
-        const pendingApprovals = PAYROLLS.filter(p => p.status === PayrollStatus.SUBMITTED).length;
+        // Calculate real total payroll from passed props
+        const totalPayroll = payrolls.reduce((acc, curr) => acc + curr.netSalary, 0);
+        const pendingApprovals = payrolls.filter(p => p.status === PayrollStatus.SUBMITTED).length;
         return { totalEmployees, totalPayroll, pendingApprovals };
+    } else {
+        // Employee Specific Stats
+        const myPayrolls = payrolls.filter(p => p.employee?.userId === user.id);
+        const totalReceived = myPayrolls
+            .filter(p => p.status === PayrollStatus.PAID)
+            .reduce((acc, curr) => acc + curr.netSalary, 0);
+        return { totalReceived };
     }
-    return null;
-  }, [user.role]);
+  }, [user.role, user.id, payrolls, isAdminOrManager]);
 
-  // Chart Data Preparation
+  // --- Dynamic Chart Data Preparation ---
   const chartData = useMemo(() => {
-    const data = [
-        { name: 'Agu', amount: 45000000 },
-        { name: 'Sep', amount: 48000000 },
-        { name: 'Okt', amount: 47500000 },
-        { name: 'Nov', amount: 52000000 },
-    ];
-    return data;
-  }, []);
+    // 1. Filter Payrolls based on Role
+    let relevantPayrolls = payrolls;
+    if (!isAdminOrManager) {
+        // For Employees: Only show their own payrolls
+        relevantPayrolls = payrolls.filter(p => p.employee?.userId === user.id);
+    }
 
-  // Employee specific stats
-  const employeeStats = useMemo(() => {
-     if (user.role !== Role.EMPLOYEE) return null;
-     const myPayrolls = PAYROLLS.filter(p => p.employee?.userId === user.id);
-     const latest = myPayrolls[myPayrolls.length - 1];
-     return {
-         latestSalary: latest?.netSalary || 0,
-         lastMonth: latest?.month || 'N/A',
-         totalReceived: myPayrolls.reduce((acc, p) => acc + p.netSalary, 0)
-     }
-  }, [user]);
+    // 2. Group by Month (YYYY-MM) and Sum Amounts
+    // Use a Map to aggregate data
+    const groupedData: { [key: string]: number } = {};
 
-  const formatIDR = (num: number) => {
-      return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(num);
-  }
+    relevantPayrolls.forEach(p => {
+        const monthKey = p.month; // e.g. "2023-10"
+        if (!groupedData[monthKey]) {
+            groupedData[monthKey] = 0;
+        }
+        groupedData[monthKey] += p.netSalary;
+    });
 
-  // Simple short formatter for charts (e.g. 1jt)
+    // 3. Transform to Array and Sort by Date
+    const sortedKeys = Object.keys(groupedData).sort(); // Sorts strings "2023-01", "2023-02" correctly
+    
+    // Take only the last 6 months for cleaner chart if data is huge
+    const recentKeys = sortedKeys.slice(-6); 
+
+    return recentKeys.map(key => {
+        // Parse YYYY-MM to get readable month name
+        const [year, month] = key.split('-');
+        const dateObj = new Date(parseInt(year), parseInt(month) - 1, 1);
+        const monthName = dateObj.toLocaleDateString('id-ID', { month: 'short' });
+        
+        return {
+            name: `${monthName} ${year.slice(2)}`, // e.g. "Okt 23"
+            amount: groupedData[key],
+            fullDate: key
+        };
+    });
+  }, [payrolls, user.id, isAdminOrManager]);
+
   const formatShortIDR = (num: number) => {
-      return (num / 1000000).toFixed(0) + 'jt';
-  }
+      return (num / 1000000).toFixed(1) + 'jt';
+  };
 
+  // --- CRUD Handlers for Quick Action ---
+
+  const handleCreatePayrollClick = () => {
+    setShowEmployeeSelectModal(true);
+  };
+
+  const handleSelectEmployee = (employee: Employee) => {
+      setShowEmployeeSelectModal(false);
+      setSelectedEmployeeForPayroll(employee);
+  };
+
+  const handleSavePayroll = (data: any) => {
+      // Construct the full Payroll object
+      if (!selectedEmployeeForPayroll) return;
+
+      const newPayroll: Payroll = {
+        ...data, // Spread data first so undefined id from form doesn't overwrite generated id
+        id: `pr-${Date.now()}`,
+        employee: selectedEmployeeForPayroll
+      };
+
+      // Call parent handler to update global state
+      onAddPayroll(newPayroll);
+
+      setSelectedEmployeeForPayroll(null);
+      setShowSuccessToast(true);
+      
+      // Hide toast after 5 seconds if not clicked
+      setTimeout(() => setShowSuccessToast(false), 5000);
+  };
+
+  const handleCheckPayroll = () => {
+      onNavigate('payroll');
+  };
+
+  const handleQuickAddEmployeeClick = () => {
+      if (onQuickAddEmployee) {
+          onQuickAddEmployee();
+      } else {
+          onNavigate('employees');
+      }
+  };
+
+  const handleExportReport = (type: 'pdf' | 'excel') => {
+      const title = type === 'pdf' ? 'Laporan PDF' : 'Laporan Excel';
+      alert(`Sedang memproses ${title}...\n\nSistem sedang mengompilasi data penggajian bulan ini. File akan diunduh otomatis dalam beberapa detik.`);
+  };
+
+  // --------------------------------------
 
   return (
-    <div className="space-y-8 animate-fade-in">
+    <div className="space-y-8 animate-fade-in relative">
+      
+      {/* --- Success Toast for Quick Action --- */}
+      {showSuccessToast && (
+           <div className="fixed bottom-5 right-5 z-50 animate-fade-in-up cursor-pointer" onClick={handleCheckPayroll}>
+            <div className={`bg-green-500 rounded-lg shadow-lg p-4 flex items-center justify-between space-x-3 max-w-md border border-white/10 hover:bg-green-600 transition-colors`}>
+                <div className="flex items-center space-x-3">
+                    <div className="flex-shrink-0">
+                        <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                    </div>
+                    <div className="flex-1 text-white text-sm font-medium">
+                        Penggajian berhasil dibuat!
+                        <span className="block text-xs opacity-80 underline mt-1">Klik untuk cek detail di List.</span>
+                    </div>
+                </div>
+                <button className="text-white hover:text-gray-200" onClick={(e) => { e.stopPropagation(); setShowSuccessToast(false); }}>
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+            </div>
+            </div>
+      )}
+
+      {/* --- Step 1: Select Employee Modal --- */}
+      {showEmployeeSelectModal && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+              <div className="bg-white dark:bg-brand-dark rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh] animate-fade-in-up border border-gray-200 dark:border-gray-700">
+                  <div className="p-6 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
+                      <div>
+                          <h3 className="text-xl font-bold text-gray-900 dark:text-white">Pilih Karyawan</h3>
+                          <p className="text-sm text-gray-500 dark:text-gray-400">Pilih karyawan untuk membuat penggajian baru.</p>
+                      </div>
+                      <button onClick={() => setShowEmployeeSelectModal(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-white">
+                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                      </button>
+                  </div>
+                  <div className="overflow-y-auto p-6 space-y-3">
+                      {EMPLOYEES.map(emp => (
+                          <button 
+                            key={emp.id} 
+                            onClick={() => handleSelectEmployee(emp)}
+                            className="w-full flex items-center justify-between p-4 rounded-xl border border-gray-200 dark:border-gray-700 hover:bg-brand-blue/5 hover:border-brand-blue dark:hover:bg-brand-blue/20 transition-all group"
+                          >
+                              <div className="flex items-center space-x-4">
+                                  <img src={emp.user.avatarUrl} alt="" className="w-10 h-10 rounded-full border border-gray-200 dark:border-gray-600" />
+                                  <div className="text-left">
+                                      <p className="font-bold text-gray-900 dark:text-white group-hover:text-brand-blue">{emp.user.fullName}</p>
+                                      <p className="text-xs text-gray-500 dark:text-gray-400">{emp.employeeIdNumber}</p>
+                                  </div>
+                              </div>
+                              <div className="text-right">
+                                   <span className="text-xs font-bold px-2 py-1 rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 group-hover:bg-white group-hover:shadow-sm">Pilih</span>
+                              </div>
+                          </button>
+                      ))}
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* --- Step 2: Payroll Form Overlay --- */}
+      {selectedEmployeeForPayroll && (
+          <div className="fixed inset-0 bg-black/90 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
+              <div className="w-full max-w-5xl animate-fade-in-up my-8">
+                  <PayrollForm 
+                    employee={selectedEmployeeForPayroll} 
+                    onSave={handleSavePayroll} 
+                    onCancel={() => setSelectedEmployeeForPayroll(null)} 
+                   />
+              </div>
+          </div>
+      )}
+
+
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
           <div>
             <h1 className="text-4xl font-black text-gray-900 dark:text-white tracking-tight">
@@ -71,174 +225,178 @@ export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
       </div>
 
       {/* Admin / Manager Stats Cards */}
-      {(user.role === Role.ADMIN || user.role === Role.MANAGER) && stats && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            <div className="bg-white dark:bg-brand-dark p-6 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 dark:border-gray-700 hover:-translate-y-1 transition-transform duration-300 group">
-                <div className="flex items-start justify-between mb-4">
-                    <div className="p-3 bg-indigo-50 dark:bg-indigo-900/20 rounded-2xl text-brand-blue group-hover:bg-brand-blue group-hover:text-white transition-colors">
-                        <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
+      {isAdminOrManager && stats && (
+        <>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                <div className="bg-white dark:bg-brand-dark p-6 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 dark:border-gray-700 hover:-translate-y-1 transition-transform duration-300 group">
+                    <div className="flex items-start justify-between mb-4">
+                        <div className="p-3 bg-indigo-50 dark:bg-indigo-900/20 rounded-2xl text-brand-blue group-hover:bg-brand-blue group-hover:text-white transition-colors">
+                            <UsersIcon className="w-8 h-8" />
+                        </div>
+                        <span className="text-xs font-bold text-green-500 bg-green-50 dark:bg-green-900/30 px-2 py-1 rounded-lg">+5%</span>
                     </div>
-                    <span className="text-xs font-bold text-green-500 bg-green-50 dark:bg-green-900/30 px-2 py-1 rounded-lg">+5%</span>
+                    <p className="text-sm font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Total Karyawan</p>
+                    <p className="text-3xl font-black text-gray-900 dark:text-white">{stats.totalEmployees}</p>
                 </div>
-                <p className="text-sm font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Total Karyawan</p>
-                <p className="text-4xl font-black text-gray-900 dark:text-white mt-1">{stats.totalEmployees}</p>
-            </div>
 
-            <div className="bg-white dark:bg-brand-dark p-6 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 dark:border-gray-700 hover:-translate-y-1 transition-transform duration-300 group">
-                 <div className="flex items-start justify-between mb-4">
-                    <div className="p-3 bg-pink-50 dark:bg-pink-900/20 rounded-2xl text-brand-orange group-hover:bg-brand-orange group-hover:text-white transition-colors">
-                        <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                    </div>
-                    {stats.pendingApprovals > 0 && <span className="text-xs font-bold text-brand-orange bg-pink-50 dark:bg-pink-900/30 px-2 py-1 rounded-lg">Perlu Tindakan</span>}
-                </div>
-                <p className="text-sm font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Menunggu Review</p>
-                <p className="text-4xl font-black text-gray-900 dark:text-white mt-1">{stats.pendingApprovals}</p>
-            </div>
-
-            <div className="bg-gradient-to-br from-brand-blue to-brand-purple p-6 rounded-3xl shadow-xl flex flex-col justify-between text-white sm:col-span-2 lg:col-span-1 relative overflow-hidden group">
-                <div className="absolute top-0 right-0 -mt-10 -mr-10 w-32 h-32 bg-white opacity-10 rounded-full blur-2xl group-hover:scale-150 transition-transform duration-700"></div>
-                <div className="relative z-10">
-                    <div className="flex justify-between items-start">
-                        <p className="text-sm font-bold text-indigo-100 uppercase tracking-wider">Total Dibayarkan</p>
-                        <div className="p-2 bg-white/20 backdrop-blur-md rounded-xl">
-                             <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                <div className="bg-white dark:bg-brand-dark p-6 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 dark:border-gray-700 hover:-translate-y-1 transition-transform duration-300 group">
+                    <div className="flex items-start justify-between mb-4">
+                        <div className="p-3 bg-pink-50 dark:bg-pink-900/20 rounded-2xl text-brand-orange group-hover:bg-brand-orange group-hover:text-white transition-colors">
+                            <CashIcon className="w-8 h-8" />
                         </div>
                     </div>
-                    <p className="text-3xl font-black mt-4 tracking-tight">{formatIDR(stats.totalPayroll)}</p>
-                    <p className="text-xs text-indigo-200 mt-2 font-medium bg-white/10 inline-block px-2 py-1 rounded-lg">+12% vs bulan lalu</p>
+                    <p className="text-sm font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Total Penggajian</p>
+                    <p className="text-3xl font-black text-gray-900 dark:text-white">{formatShortIDR(stats.totalPayroll)}</p>
+                </div>
+
+                <div className="bg-white dark:bg-brand-dark p-6 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 dark:border-gray-700 hover:-translate-y-1 transition-transform duration-300 group">
+                    <div className="flex items-start justify-between mb-4">
+                        <div className="p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-2xl text-yellow-600 group-hover:bg-yellow-500 group-hover:text-white transition-colors">
+                            <DocumentIcon className="w-8 h-8" />
+                        </div>
+                        {stats.pendingApprovals > 0 && <span className="text-xs font-bold text-red-600 bg-red-100 dark:bg-red-900/30 px-2 py-1 rounded-lg">Butuh Aksi</span>}
+                    </div>
+                    <p className="text-sm font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Menunggu Approval</p>
+                    <p className="text-3xl font-black text-gray-900 dark:text-white">{stats.pendingApprovals}</p>
                 </div>
             </div>
-        </div>
-      )}
 
-      {/* Employee Stats */}
-      {user.role === Role.EMPLOYEE && employeeStats && (
-           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-               <div className="bg-white dark:bg-brand-dark p-8 rounded-3xl shadow-sm border border-gray-100 dark:border-gray-700 relative overflow-hidden group hover:shadow-lg transition-all">
-                    <div className="absolute -right-6 -top-6 w-32 h-32 bg-brand-blue/10 rounded-full blur-2xl group-hover:bg-brand-blue/20 transition-colors"></div>
-                    <p className="text-sm font-bold text-gray-400 uppercase tracking-wider relative z-10">Gaji Terakhir ({employeeStats.lastMonth})</p>
-                    <p className="text-4xl font-black text-gray-900 dark:text-white mt-3 relative z-10 tracking-tighter">{formatIDR(employeeStats.latestSalary)}</p>
-                    <div className="mt-4 inline-flex items-center text-sm font-bold text-brand-blue">
-                        Lihat Detail <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" /></svg>
-                    </div>
-               </div>
-               <div className="bg-white dark:bg-brand-dark p-8 rounded-3xl shadow-sm border border-gray-100 dark:border-gray-700 relative overflow-hidden group hover:shadow-lg transition-all">
-                    <div className="absolute -right-6 -top-6 w-32 h-32 bg-green-500/10 rounded-full blur-2xl group-hover:bg-green-500/20 transition-colors"></div>
-                    <p className="text-sm font-bold text-gray-400 uppercase tracking-wider relative z-10">Total Pendapatan (YTD)</p>
-                    <p className="text-4xl font-black text-gray-900 dark:text-white mt-3 relative z-10 tracking-tighter">{formatIDR(employeeStats.totalReceived)}</p>
-                     <div className="mt-4 inline-flex items-center text-sm font-bold text-green-600">
-                        +100% Pertumbuhan <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>
-                    </div>
+            {/* QUICK ACTION SECTION */}
+            <div className="bg-white dark:bg-brand-dark p-6 rounded-3xl shadow-sm border border-gray-200 dark:border-gray-700 flex flex-col lg:flex-row items-center justify-between gap-6">
+                <div className="text-center lg:text-left">
+                    <h3 className="text-lg font-bold text-gray-900 dark:text-white">Aksi Cepat</h3>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">Pintasan untuk tugas administrasi & pelaporan.</p>
+                </div>
+                <div className="flex flex-wrap justify-center gap-3">
+                        {/* Create Payroll */}
+                        <button 
+                            onClick={handleCreatePayrollClick}
+                            className="flex items-center px-5 py-2.5 bg-brand-blue text-white rounded-xl font-bold shadow-lg shadow-blue-500/30 hover:bg-blue-700 transition-all transform hover:-translate-y-0.5"
+                        >
+                            <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
+                            Buat Penggajian
+                        </button>
+
+                        {/* Add Employee */}
+                        <button 
+                            onClick={handleQuickAddEmployeeClick}
+                            className="flex items-center px-5 py-2.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-200 rounded-xl font-bold hover:bg-gray-50 dark:hover:bg-gray-700 transition-all"
+                        >
+                            <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" /></svg>
+                            Tambah Karyawan
+                        </button>
+
+                        {/* Export Group */}
+                        <div className="flex items-center bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-xl p-1">
+                            <button 
+                                onClick={() => handleExportReport('pdf')}
+                                className="px-4 py-2 text-xs font-bold text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors flex items-center"
+                                title="Unduh PDF"
+                            >
+                                <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
+                                PDF
+                            </button>
+                            <div className="w-px h-4 bg-gray-300 dark:bg-gray-600 mx-1"></div>
+                            <button 
+                                onClick={() => handleExportReport('excel')}
+                                className="px-4 py-2 text-xs font-bold text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20 rounded-lg transition-colors flex items-center"
+                                title="Unduh Excel"
+                            >
+                                <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                                XLS
+                            </button>
+                        </div>
+                </div>
+            </div>
+        </>
+      )}
+      
+      {/* Employee Personal Stats */}
+      {!isAdminOrManager && stats && (
+           <div className="bg-gradient-to-br from-brand-blue to-indigo-800 rounded-3xl p-8 text-white shadow-xl">
+               <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                   <div>
+                       <p className="text-indigo-200 font-bold uppercase tracking-widest text-xs">Status</p>
+                       <p className="text-4xl font-black mt-2">Aktif</p>
+                   </div>
+                   <div>
+                       <p className="text-indigo-200 font-bold uppercase tracking-widest text-xs">Total Diterima</p>
+                       <p className="text-2xl font-bold mt-2 opacity-90">
+                           {/* Use dynamic IDR formatter logic inline or reuse a helper if available */}
+                           {new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(stats.totalReceived || 0)}
+                       </p>
+                   </div>
+                   <div className="flex items-center">
+                       <div className="p-4 bg-white/10 rounded-2xl backdrop-blur-sm border border-white/10 w-full">
+                           <p className="text-sm font-medium">Cek slip gaji anda di menu Penggajian.</p>
+                       </div>
+                   </div>
                </div>
            </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Chart */}
-        <div className="bg-white dark:bg-brand-dark p-6 sm:p-8 rounded-3xl shadow-sm border border-gray-100 dark:border-gray-700">
-            <div className="flex justify-between items-center mb-8">
-                <div>
-                    <h3 className="text-xl font-bold text-gray-900 dark:text-white">Ringkasan Keuangan</h3>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">Distribusi gaji bersih per bulan.</p>
-                </div>
-            </div>
-            <div className="h-80 w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={chartData} margin={{ top: 5, right: 0, left: -20, bottom: 0 }}>
-                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" opacity={0.5} />
-                        <XAxis 
-                            dataKey="name" 
-                            stroke="#9CA3AF" 
-                            fontSize={12} 
-                            tickLine={false} 
-                            axisLine={false} 
-                            dy={10}
-                            fontWeight={600}
-                        />
-                        <YAxis 
-                            stroke="#9CA3AF" 
-                            fontSize={12} 
-                            tickLine={false} 
-                            axisLine={false} 
-                            tickFormatter={formatShortIDR}
-                            fontWeight={600}
-                        />
-                        <Tooltip 
-                            cursor={{ fill: '#f3f4f6', opacity: 0.4 }}
-                            contentStyle={{ backgroundColor: '#1e293b', borderRadius: '16px', border: 'none', padding: '12px 16px', boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1)' }}
-                            itemStyle={{ color: '#fff', fontWeight: 'bold', fontSize: '14px' }}
-                            labelStyle={{ color: '#94a3b8', marginBottom: '4px', fontSize: '12px' }}
-                            formatter={(value: number) => [formatIDR(value), 'Gaji Bersih']}
-                        />
-                        <Bar dataKey="amount" fill="url(#colorGradient)" radius={[8, 8, 8, 8]} barSize={32} />
-                        <defs>
-                            <linearGradient id="colorGradient" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="0%" stopColor="#6366f1" stopOpacity={1}/>
-                                <stop offset="100%" stopColor="#ec4899" stopOpacity={0.8}/>
-                            </linearGradient>
-                        </defs>
-                    </BarChart>
-                </ResponsiveContainer>
-            </div>
-        </div>
-
-        {/* Recent Activity / Quick Links */}
-        <div className="space-y-6">
-             {/* Announcements Widget */}
-            <div className="bg-gradient-to-r from-violet-600 to-indigo-600 p-8 rounded-3xl shadow-xl text-white relative overflow-hidden group">
-                <div className="absolute -top-24 -right-24 w-64 h-64 bg-white opacity-10 rounded-full blur-3xl group-hover:scale-110 transition-transform duration-1000"></div>
-                <div className="absolute bottom-0 left-0 w-full h-1/2 bg-gradient-to-t from-black/20 to-transparent"></div>
+      {/* Shared Chart Section for All Roles */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <div className="lg:col-span-2 bg-white dark:bg-brand-dark p-6 rounded-3xl shadow-sm border border-gray-200 dark:border-gray-700">
+                <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-6">
+                    {isAdminOrManager ? 'Tren Total Penggajian (Bulanan)' : 'Riwayat Pendapatan Gaji Anda'}
+                </h3>
                 
-                <div className="relative z-10">
-                    <div className="flex items-center gap-2 mb-3">
-                        <span className="bg-white/20 backdrop-blur-sm px-2 py-1 rounded-lg text-xs font-bold uppercase tracking-wider">Baru</span>
-                        <h3 className="text-lg font-bold">Pembaruan Sistem 4.0</h3>
+                {chartData.length > 0 ? (
+                    <div className="h-80 w-full">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <BarChart data={chartData}>
+                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
+                                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#9CA3AF', fontSize: 12}} dy={10} />
+                                <YAxis axisLine={false} tickLine={false} tick={{fill: '#9CA3AF', fontSize: 12}} tickFormatter={formatShortIDR} />
+                                <Tooltip 
+                                    cursor={{fill: '#F3F4F6'}}
+                                    contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)'}}
+                                    formatter={(value: number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR' }).format(value)}
+                                />
+                                <Bar dataKey="amount" fill="#6366f1" radius={[6, 6, 0, 0]} barSize={40} />
+                            </BarChart>
+                        </ResponsiveContainer>
                     </div>
-                    <p className="text-indigo-100 text-sm mb-6 leading-relaxed">
-                        Kami telah meningkatkan backend ke Laravel 11! Rasakan proses penggajian yang lebih cepat dan log keamanan yang ditingkatkan.
-                    </p>
-                    <button className="text-xs font-bold bg-white text-indigo-600 px-4 py-2 rounded-xl hover:bg-indigo-50 transition-colors shadow-lg">Baca Catatan Rilis</button>
-                </div>
+                ) : (
+                    <div className="h-80 w-full flex flex-col items-center justify-center text-gray-400 border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-xl">
+                        <svg className="w-12 h-12 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+                        <p>Belum ada data penggajian</p>
+                    </div>
+                )}
             </div>
-
-            <div className="bg-white dark:bg-brand-dark p-8 rounded-3xl shadow-sm border border-gray-100 dark:border-gray-700">
-                <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-6">Aksi Cepat</h3>
-                <div className="space-y-4">
-                    {user.role === Role.MANAGER && (
-                        <button className="w-full group text-left p-4 bg-gray-50 dark:bg-gray-800 hover:bg-white dark:hover:bg-gray-700 hover:shadow-lg hover:scale-[1.02] rounded-2xl flex items-center transition-all duration-200 border border-transparent hover:border-gray-100 dark:hover:border-gray-600">
-                            <div className="bg-brand-orange/10 p-3 rounded-xl text-brand-orange mr-4 group-hover:bg-brand-orange group-hover:text-white transition-colors">
-                                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
+            
+            {/* Side Activity or Info Panel */}
+            {isAdminOrManager ? (
+                <div className="bg-white dark:bg-brand-dark p-6 rounded-3xl shadow-sm border border-gray-200 dark:border-gray-700">
+                    <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Aktivitas Terkini</h3>
+                    <div className="space-y-4">
+                        {payrolls.slice(0, 3).map(p => (
+                             <div key={p.id} className="flex items-center p-3 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors cursor-pointer group">
+                                <div className="w-10 h-10 rounded-full bg-green-100 dark:bg-green-900/20 flex items-center justify-center mr-3 text-green-600">
+                                    <CashIcon className="w-5 h-5" />
+                                </div>
+                                <div>
+                                    <p className="text-sm font-bold text-gray-900 dark:text-white group-hover:text-brand-blue">Gaji {p.employee?.user.fullName}</p>
+                                    <p className="text-xs text-gray-500 dark:text-gray-400">{p.month}</p>
+                                </div>
                             </div>
-                            <div>
-                                <p className="font-bold text-gray-900 dark:text-white">Buat Penggajian Baru</p>
-                                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 font-medium">Mulai proses gaji</p>
-                            </div>
-                        </button>
-                    )}
-                    {user.role === Role.ADMIN && (
-                        <button className="w-full group text-left p-4 bg-gray-50 dark:bg-gray-800 hover:bg-white dark:hover:bg-gray-700 hover:shadow-lg hover:scale-[1.02] rounded-2xl flex items-center transition-all duration-200 border border-transparent hover:border-gray-100 dark:hover:border-gray-600">
-                            <div className="bg-brand-blue/10 p-3 rounded-xl text-brand-blue mr-4 group-hover:bg-brand-blue group-hover:text-white transition-colors">
-                                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" /></svg>
-                            </div>
-                            <div>
-                                <p className="font-bold text-gray-900 dark:text-white">Tambah Karyawan</p>
-                                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 font-medium">Daftarkan staf baru</p>
-                            </div>
-                        </button>
-                    )}
-                    <button className="w-full group text-left p-4 bg-gray-50 dark:bg-gray-800 hover:bg-white dark:hover:bg-gray-700 hover:shadow-lg hover:scale-[1.02] rounded-2xl flex items-center transition-all duration-200 border border-transparent hover:border-gray-100 dark:hover:border-gray-600">
-                        <div className="bg-gray-200 dark:bg-gray-700 p-3 rounded-xl text-gray-600 dark:text-gray-300 mr-4 group-hover:bg-gray-700 group-hover:text-white transition-colors">
-                                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-                        </div>
-                        <div>
-                            <p className="font-bold text-gray-900 dark:text-white">Unduh Laporan</p>
-                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 font-medium">Ekspor PDF/Excel</p>
-                        </div>
-                    </button>
+                        ))}
+                    </div>
                 </div>
-            </div>
-        </div>
+            ) : (
+                 <div className="bg-white dark:bg-brand-dark p-6 rounded-3xl shadow-sm border border-gray-200 dark:border-gray-700">
+                     <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Informasi Penting</h3>
+                     <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-100 dark:border-blue-800 mb-4">
+                         <p className="text-sm text-blue-800 dark:text-blue-200">Gaji bulan ini diproses pada tanggal 25. Pastikan data absensi Anda sudah benar.</p>
+                     </div>
+                     <button onClick={() => onNavigate('my-payslips')} className="w-full py-2 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 font-bold rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors text-sm">
+                         Lihat Semua Slip Gaji
+                     </button>
+                 </div>
+            )}
       </div>
+
     </div>
   );
 };

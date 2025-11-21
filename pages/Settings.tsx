@@ -1,15 +1,14 @@
 import React, { useState } from 'react';
 import { AUDIT_LOGS } from '../services/mockData';
-import { Role } from '../types';
 
 export const Settings = () => {
-  const [activeTab, setActiveTab] = useState<'general' | 'database' | 'audit' | 'integrations'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'database' | 'audit'>('general');
 
   return (
     <div className="space-y-6">
       <div>
         <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white">Konfigurasi Sistem</h2>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Kelola pengaturan global, log keamanan, dan integrasi.</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Kelola pengaturan global dan log keamanan.</p>
       </div>
 
       {/* Tabs */}
@@ -44,16 +43,6 @@ export const Settings = () => {
                 }`}
             >
                 Log Keamanan
-            </button>
-            <button
-                onClick={() => setActiveTab('integrations')}
-                className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
-                    activeTab === 'integrations'
-                    ? 'border-brand-blue text-brand-blue dark:text-blue-400 dark:border-blue-400'
-                    : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300'
-                }`}
-            >
-                Integrasi
             </button>
         </nav>
       </div>
@@ -208,62 +197,6 @@ export const Settings = () => {
                  <button className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white font-medium">Muat aktivitas lainnya...</button>
              </div>
         </div>
-      )}
-
-      {/* Integrations Tab */}
-      {activeTab === 'integrations' && (
-          <div className="space-y-6 animate-fade-in">
-              {/* Banking */}
-              <div className="bg-white dark:bg-brand-dark p-6 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
-                  <div className="flex items-center justify-between mb-4">
-                      <div>
-                          <h3 className="text-lg font-bold text-gray-900 dark:text-white">Layanan Perbankan</h3>
-                          <p className="text-sm text-gray-500 dark:text-gray-400">Kelola penyedia Transfer Gaji (Payroll).</p>
-                      </div>
-                      <span className="px-2 py-1 bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-400 text-xs font-bold rounded uppercase">Aktif</span>
-                  </div>
-                  <div className="border dark:border-gray-600 rounded-lg p-4 flex items-center justify-between bg-gray-50 dark:bg-gray-800">
-                       <div className="flex items-center">
-                           <div className="w-10 h-10 bg-blue-800 rounded-lg flex items-center justify-center text-white font-bold mr-4">B</div>
-                           <div>
-                               <p className="font-bold text-gray-900 dark:text-white">BCA KlikBisnis</p>
-                               <p className="text-xs text-gray-500 dark:text-gray-400">Corporate ID: •••• 4432</p>
-                           </div>
-                       </div>
-                       <button className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white">Konfigurasi</button>
-                  </div>
-              </div>
-
-              {/* Accounting */}
-              <div className="bg-white dark:bg-brand-dark p-6 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
-                  <div className="flex items-center justify-between mb-4">
-                      <div>
-                          <h3 className="text-lg font-bold text-gray-900 dark:text-white">Software Akuntansi</h3>
-                          <p className="text-sm text-gray-500 dark:text-gray-400">Sinkronisasi data gaji ke buku besar.</p>
-                      </div>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                       <div className="border dark:border-gray-600 rounded-lg p-4 flex items-center justify-between hover:shadow-md transition-shadow cursor-pointer opacity-60 hover:opacity-100 dark:bg-gray-800/50">
-                           <div className="flex items-center">
-                               <div className="w-10 h-10 bg-blue-400 rounded-lg flex items-center justify-center text-white font-bold mr-4">J</div>
-                               <div>
-                                   <p className="font-bold text-gray-900 dark:text-white">Jurnal.id</p>
-                                   <p className="text-xs text-gray-500 dark:text-gray-400">Hubungkan</p>
-                               </div>
-                           </div>
-                       </div>
-                        <div className="border dark:border-gray-600 rounded-lg p-4 flex items-center justify-between hover:shadow-md transition-shadow cursor-pointer opacity-60 hover:opacity-100 dark:bg-gray-800/50">
-                           <div className="flex items-center">
-                               <div className="w-10 h-10 bg-green-600 rounded-lg flex items-center justify-center text-white font-bold mr-4">A</div>
-                               <div>
-                                   <p className="font-bold text-gray-900 dark:text-white">Accurate Online</p>
-                                   <p className="text-xs text-gray-500 dark:text-gray-400">Hubungkan</p>
-                               </div>
-                           </div>
-                       </div>
-                  </div>
-              </div>
-          </div>
       )}
     </div>
   );
