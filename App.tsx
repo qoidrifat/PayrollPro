@@ -10,11 +10,15 @@ import { Attendance } from './pages/Attendance';
 import { UserManagement } from './pages/UserManagement';
 import { User, Payroll, Employee, AttendanceRecord } from './types';
 import { PAYROLLS, EMPLOYEES, USERS, ATTENDANCE_RECORDS } from './services/mockData';
+import { LoadingScreen } from './components/LoadingScreen';
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [activeTab, setActiveTab] = useState('dashboard');
   
+  // Loading State - Start as true for splash screen
+  const [isLoading, setIsLoading] = useState(true);
+
   // Lifted State for Payrolls (Single Source of Truth)
   const [globalPayrolls, setGlobalPayrolls] = useState<Payroll[]>(PAYROLLS);
   
@@ -64,23 +68,57 @@ export default function App() {
       setNotification(null);
   };
 
-  // Simulate session check
+  // Simulate session check and splash screen
   useEffect(() => {
-    const savedUser = localStorage.getItem('payroll_user');
-    if (savedUser) {
-        setUser(JSON.parse(savedUser));
-    }
+    const initApp = async () => {
+        // Wait a bit for the splash screen effect
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        
+        const savedUser = localStorage.getItem('payroll_user');
+        if (savedUser) {
+            setUser(JSON.parse(savedUser));
+        }
+        setIsLoading(false);
+    };
+    
+    initApp();
   }, []);
 
   const handleLogin = (loggedInUser: User) => {
-    setUser(loggedInUser);
-    localStorage.setItem('payroll_user', JSON.stringify(loggedInUser));
-    setActiveTab('dashboard');
+    // Simulate loading for login too
+    setIsLoading(true);
+    setTimeout(() => {
+        setUser(loggedInUser);
+        localStorage.setItem('payroll_user', JSON.stringify(loggedInUser));
+        setActiveTab('dashboard');
+        setIsLoading(false);
+    }, 1500);
   };
 
   const handleLogout = () => {
-    setUser(null);
-    localStorage.removeItem('payroll_user');
+    setIsLoading(true);
+    setTimeout(() => {
+        setUser(null);
+        localStorage.removeItem('payroll_user');
+        setIsLoading(false);
+    }, 1000);
+  };
+
+  // Centralized Navigation Handler to ensure Loading Screen on ALL transitions
+  const handleNavigation = (tab: string) => {
+      if (tab === activeTab) return;
+      
+      setIsLoading(true);
+      
+      // Delay tab switch to allow loading animation to appear
+      setTimeout(() => {
+          setActiveTab(tab);
+          
+          // Short delay after content switch before revealing to ensure smooth rendering
+          setTimeout(() => {
+              setIsLoading(false);
+          }, 500);
+      }, 800); // 800ms loading duration
   };
 
   // --- Global CRUD Handlers for Payroll ---
@@ -102,8 +140,6 @@ export default function App() {
   // --- Global CRUD Handlers for Employees ---
   const handleAddEmployee = (newEmployee: Employee) => {
       setGlobalEmployees(prev => [newEmployee, ...prev]);
-      // Also add to globalUsers if not exists, though usually handled via registration or separately.
-      // For this mock, EmployeeForm creates a nested User object. We should ensure that User object is in globalUsers too.
       if (!globalUsers.find(u => u.id === newEmployee.user.id)) {
           setGlobalUsers(prev => [...prev, newEmployee.user]);
       }
@@ -112,24 +148,16 @@ export default function App() {
 
   const handleUpdateEmployee = (updatedEmployee: Employee) => {
       setGlobalEmployees(prev => prev.map(e => e.id === updatedEmployee.id ? updatedEmployee : e));
-      // Update the corresponding user in globalUsers as well to keep sync
       setGlobalUsers(prev => prev.map(u => u.id === updatedEmployee.userId ? updatedEmployee.user : u));
       showNotification('Data karyawan berhasil diperbarui.', 'success');
   };
 
   const handleDeleteEmployee = (id: string) => {
-      // Find employee to get userID
-      const emp = globalEmployees.find(e => e.id === id);
       setGlobalEmployees(prev => prev.filter(e => e.id !== id));
-      if (emp) {
-          // Optional: Delete user account when employee is deleted? 
-          // Usually we keep the user account but maybe archive it. 
-          // For now, let's just keep the user account to allow re-hiring or history.
-      }
       showNotification('Data karyawan telah dihapus.', 'info');
   };
 
-  // --- Global CRUD Handlers for Users (User Management) ---
+  // --- Global CRUD Handlers for Users ---
   const handleAddUser = (newUser: User) => {
       setGlobalUsers(prev => [...prev, newUser]);
       showNotification('Akun pengguna baru berhasil dibuat.', 'success');
@@ -137,38 +165,29 @@ export default function App() {
 
   const handleUpdateUser = (updatedUser: User) => {
       setGlobalUsers(prev => prev.map(u => u.id === updatedUser.id ? updatedUser : u));
-      
-      // Sync with Employee list if this user is attached to an employee
       setGlobalEmployees(prev => prev.map(emp => {
           if (emp.userId === updatedUser.id) {
               return { ...emp, user: updatedUser };
           }
           return emp;
       }));
-
       showNotification('Data akun pengguna berhasil diperbarui.', 'success');
   };
 
   const handleDeleteUser = (id: string) => {
       setGlobalUsers(prev => prev.filter(u => u.id !== id));
-      // Warning: This might leave an Employee record with a dangling userId reference.
-      // In a real app, backend handles cascading deletes or soft deletes.
       showNotification('Akun pengguna telah dihapus.', 'info');
   };
 
-  // --- Global Handler for Attendance (Real-time) ---
+  // --- Global Handler for Attendance ---
   const handleAttendanceSubmit = (record: AttendanceRecord) => {
       setGlobalAttendance(prev => {
-          // Check if record exists (update scenario like Check-Out)
           const existingIndex = prev.findIndex(r => r.id === record.id);
-          
           if (existingIndex >= 0) {
               const updated = [...prev];
               updated[existingIndex] = record;
               return updated;
           }
-          
-          // Create new scenario (Check-In)
           return [record, ...prev];
       });
       showNotification('Data absensi berhasil diperbarui secara real-time.', 'success');
@@ -176,12 +195,23 @@ export default function App() {
 
   // --- Quick Action Handlers ---
   const handleQuickAddEmployee = () => {
-      setActiveTab('employees');
-      setTriggerAddEmployee(true);
+      // Trigger loading transition for quick action jump
+      setIsLoading(true);
+      setTimeout(() => {
+        setActiveTab('employees');
+        setTriggerAddEmployee(true);
+        setTimeout(() => setIsLoading(false), 500);
+      }, 800);
   };
 
+  // Login Screen Wrap
   if (!user) {
-    return <Login onLogin={handleLogin} users={globalUsers} />;
+    return (
+        <>
+            <LoadingScreen isLoading={isLoading} />
+            <Login onLogin={handleLogin} users={globalUsers} />
+        </>
+    );
   }
 
   const renderContent = () => {
@@ -190,9 +220,9 @@ export default function App() {
             return (
                 <Dashboard 
                     user={user} 
-                    payrolls={globalPayrolls} // Pass global payrolls here
+                    payrolls={globalPayrolls} 
                     onAddPayroll={handleAddPayroll}
-                    onNavigate={(tab) => setActiveTab(tab)}
+                    onNavigate={handleNavigation} // Use centralized handler
                     onQuickAddEmployee={handleQuickAddEmployee}
                 />
             );
@@ -220,7 +250,6 @@ export default function App() {
                 />
             );
         case 'my-payslips':
-            // Reusing PayrollList for employee view
             return (
                 <PayrollList 
                     user={user} 
@@ -256,9 +285,9 @@ export default function App() {
             return (
                 <Dashboard 
                     user={user} 
-                    payrolls={globalPayrolls} // Pass global payrolls here
+                    payrolls={globalPayrolls} 
                     onAddPayroll={handleAddPayroll}
-                    onNavigate={(tab) => setActiveTab(tab)}
+                    onNavigate={handleNavigation}
                     onQuickAddEmployee={handleQuickAddEmployee}
                 />
             );
@@ -266,17 +295,21 @@ export default function App() {
   };
 
   return (
-    <Layout 
-        user={user} 
-        onLogout={handleLogout} 
-        activeTab={activeTab} 
-        setActiveTab={setActiveTab}
-        darkMode={darkMode}
-        toggleDarkMode={toggleDarkMode}
-        notification={notification}
-        closeNotification={closeNotification}
-    >
-      {renderContent()}
-    </Layout>
+    <>
+        <LoadingScreen isLoading={isLoading} />
+        <Layout 
+            user={user} 
+            onLogout={handleLogout} 
+            activeTab={activeTab} 
+            setActiveTab={handleNavigation} // Use centralized handler for Sidebar links too
+            setIsLoading={setIsLoading}
+            darkMode={darkMode}
+            toggleDarkMode={toggleDarkMode}
+            notification={notification}
+            closeNotification={closeNotification}
+        >
+        {renderContent()}
+        </Layout>
+    </>
   );
 }

@@ -8,7 +8,8 @@ interface LayoutProps {
   user: User;
   onLogout: () => void;
   activeTab: string;
-  setActiveTab: (tab: string) => void;
+  setActiveTab: (tab: string) => void; // This now receives handleNavigation from App.tsx
+  setIsLoading: (loading: boolean) => void;
   darkMode: boolean;
   toggleDarkMode: () => void;
   notification: { message: string; type: 'success' | 'error' | 'info' } | null;
@@ -24,7 +25,8 @@ export const Layout: React.FC<LayoutProps> = ({
   user, 
   onLogout, 
   activeTab, 
-  setActiveTab, 
+  setActiveTab,
+  setIsLoading,
   darkMode, 
   toggleDarkMode,
   notification,
@@ -35,7 +37,7 @@ export const Layout: React.FC<LayoutProps> = ({
   // Visual Active Tab State (Separated from actual activeTab to allow animation delay)
   const [visualActiveTab, setVisualActiveTab] = useState(activeTab);
 
-  // Sync visual tab if activeTab changes externally (e.g. redirect)
+  // Sync visual tab if activeTab changes externally (e.g. from Dashboard cards)
   useEffect(() => {
     setVisualActiveTab(activeTab);
   }, [activeTab]);
@@ -64,9 +66,6 @@ export const Layout: React.FC<LayoutProps> = ({
   }, [user.role]);
 
   // Calculate position of the "Moving Box"
-  // We assume standard heights:
-  // Header: 44px (height)
-  // Item: 46px height + 10px margin-bottom = 56px total vertical space
   const calculateTopPosition = () => {
       let cumulativeTop = 0;
       for (const item of visibleItems) {
@@ -86,18 +85,17 @@ export const Layout: React.FC<LayoutProps> = ({
   const topPosition = calculateTopPosition();
 
   const handleNavClick = (id: string) => {
-      // 1. Move the box immediately (visual feedback)
+      if (id === activeTab) return;
+
+      // 1. Immediate Visual Feedback (Sidebar Box Moves)
       setVisualActiveTab(id);
       
       // 2. Close mobile menu
       setIsMobileMenuOpen(false);
 
-      // 3. Delay the content switch to let animation play
-      // Moving Box Animation: 1 second
-      // Page Switch Delay: 1 second (matches animation)
-      setTimeout(() => {
-          setActiveTab(id);
-      }, 1000); 
+      // 3. Trigger Parent Navigation Handler
+      // This handler in App.tsx manages setIsLoading(true), waits, then switches actual tab
+      setActiveTab(id);
   };
 
   return (
@@ -120,7 +118,6 @@ export const Layout: React.FC<LayoutProps> = ({
       )}
 
       {/* Sidebar with Very Smooth Entry */}
-      {/* Duration increased to 1000ms and custom easing applied */}
       <div className={`fixed inset-y-0 left-0 z-50 w-72 bg-[#0f172a] shadow-2xl transform transition-transform duration-1000 ease-smooth lg:translate-x-0 ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         {/* Sidebar Background Gradient */}
         <div className="absolute inset-0 bg-gradient-to-b from-[#0f172a] via-[#1e1b4b] to-[#0f172a] opacity-80 pointer-events-none"></div>
@@ -166,12 +163,11 @@ export const Layout: React.FC<LayoutProps> = ({
                     <div className="relative">
                         
                         {/* THE MOVING ACTIVE BOX (Background) */}
-                        {/* It sits absolutely behind the items */}
                         <div 
                             className="absolute left-0 w-full h-[46px] rounded-2xl bg-gradient-to-r from-brand-blue/20 to-brand-purple/20 border border-brand-blue/30 shadow-[0_0_15px_rgba(99,102,241,0.2)] z-0 pointer-events-none"
                             style={{ 
                                 top: `${topPosition}px`,
-                                transition: 'top 1s cubic-bezier(0.25, 0.1, 0.25, 1)', // 1 Second very smooth custom bezier
+                                transition: 'top 1s cubic-bezier(0.25, 0.1, 0.25, 1)',
                                 opacity: topPosition < 0 ? 0 : 1
                             }}
                         >
@@ -262,7 +258,6 @@ export const Layout: React.FC<LayoutProps> = ({
         {/* Content Area */}
         <main className="flex-1 p-4 sm:p-6 lg:p-8 overflow-y-auto overflow-x-hidden">
             {/* Content Animation Container */}
-            {/* The key ensures React unmounts/remounts or animates when tab changes */}
             <div key={activeTab} className="max-w-7xl mx-auto w-full animate-fade-in">
                 {children}
             </div>

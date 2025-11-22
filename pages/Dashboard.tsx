@@ -228,7 +228,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, payrolls, onAddPayro
       {isAdminOrManager && stats && (
         <>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                <div className="bg-white dark:bg-brand-dark p-6 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 dark:border-gray-700 hover:-translate-y-1 transition-transform duration-300 group">
+                <div 
+                    onClick={() => onNavigate('employees')}
+                    className="bg-white dark:bg-brand-dark p-6 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 dark:border-gray-700 hover:-translate-y-1 transition-transform duration-300 cursor-pointer group"
+                >
                     <div className="flex items-start justify-between mb-4">
                         <div className="p-3 bg-indigo-50 dark:bg-indigo-900/20 rounded-2xl text-brand-blue group-hover:bg-brand-blue group-hover:text-white transition-colors">
                             <UsersIcon className="w-8 h-8" />
@@ -239,7 +242,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, payrolls, onAddPayro
                     <p className="text-3xl font-black text-gray-900 dark:text-white">{stats.totalEmployees}</p>
                 </div>
 
-                <div className="bg-white dark:bg-brand-dark p-6 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 dark:border-gray-700 hover:-translate-y-1 transition-transform duration-300 group">
+                <div 
+                    onClick={() => onNavigate('payroll')}
+                    className="bg-white dark:bg-brand-dark p-6 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 dark:border-gray-700 hover:-translate-y-1 transition-transform duration-300 cursor-pointer group"
+                >
                     <div className="flex items-start justify-between mb-4">
                         <div className="p-3 bg-pink-50 dark:bg-pink-900/20 rounded-2xl text-brand-orange group-hover:bg-brand-orange group-hover:text-white transition-colors">
                             <CashIcon className="w-8 h-8" />
@@ -249,7 +255,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, payrolls, onAddPayro
                     <p className="text-3xl font-black text-gray-900 dark:text-white">{formatShortIDR(stats.totalPayroll)}</p>
                 </div>
 
-                <div className="bg-white dark:bg-brand-dark p-6 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 dark:border-gray-700 hover:-translate-y-1 transition-transform duration-300 group">
+                <div 
+                    onClick={() => onNavigate('payroll')}
+                    className="bg-white dark:bg-brand-dark p-6 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 dark:border-gray-700 hover:-translate-y-1 transition-transform duration-300 cursor-pointer group"
+                >
                     <div className="flex items-start justify-between mb-4">
                         <div className="p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-2xl text-yellow-600 group-hover:bg-yellow-500 group-hover:text-white transition-colors">
                             <DocumentIcon className="w-8 h-8" />
@@ -372,7 +381,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, payrolls, onAddPayro
                     <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Aktivitas Terkini</h3>
                     <div className="space-y-4">
                         {payrolls.slice(0, 3).map(p => (
-                             <div key={p.id} className="flex items-center p-3 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors cursor-pointer group">
+                             <div 
+                                key={p.id} 
+                                onClick={() => onNavigate('payroll')}
+                                className="flex items-center p-3 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors cursor-pointer group"
+                            >
                                 <div className="w-10 h-10 rounded-full bg-green-100 dark:bg-green-900/20 flex items-center justify-center mr-3 text-green-600">
                                     <CashIcon className="w-5 h-5" />
                                 </div>
